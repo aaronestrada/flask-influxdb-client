@@ -1,0 +1,5 @@
+recursive-include flask_influxdb_client *.py
+include setup.py
+include requirements.txt
+include LICENSE.txt
+include README.md

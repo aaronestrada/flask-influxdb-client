@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>InfluxDB client example - Query data</title>
+</head>
+<body>
+<h3>Data for "{{ measurement }}"</h3>
+<table>
+    <tr>
+        {% for heading in columns %}
+        <th>{{ heading }}</th>
+        {% endfor %}
+    </tr>
+    {% for row in points %}
+    <tr>
+        {% set rowloop = loop %}
+        {% for heading in columns %}
+        <td id="cell-{{ rowloop.index }}-{{ loop.index }}">{{ row[heading] }}</td>
+        {% endfor %}
+    </tr>
+    {% endfor %}
+</table>
+</body>
+</html>
