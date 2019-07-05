@@ -1,5 +1,5 @@
 import influxdb
-from flask import current_app
+from flask import current_app, Flask
 
 try:
     from flask import _app_ctx_stack as stack
@@ -8,60 +8,97 @@ except ImportError:
 
 
 class InfluxDB(object):
-    def __init__(self, app=None):
+    def __init__(self, app: Flask = None, prefix: str = ''):
         """
         Class constructor
         :param app: Flask Application object
+        :param prefix: Parameter prefix to read from configuration
         """
         self.app = app
+        self.prefix = prefix
         if app is not None:
             self.init_app(app)
 
-    def init_app(self, app):
+    @property
+    def __connection_app_prefix(self) -> str:
+        """
+        Get prefix to add to application configuration parameter to set connection
+        :return: String with prefix
+        """
+        prefix = self.prefix.strip()
+        return '{prefix}_'.format(prefix=prefix) if prefix != '' else ''
+
+    @property
+    def __context_attr_name(self) -> str:
+        """
+        Attribute name to save in Flask context, taking into account also the prefix for the connection
+        :return: Context attribute name
+        """
+        return '{prefix}influxdb_db'.format(prefix=self.__connection_app_prefix)
+
+    def init_app(self, app: Flask, prefix: str = ''):
         """
         Initialize extension for application
         :param app: Flask Application object
+        :param prefix: Parameter prefix to read from configuration
         :return:
         """
-        app.config.setdefault('INFLUXDB_HOST', 'localhost')
-        app.config.setdefault('INFLUXDB_PORT', '8086')
-        app.config.setdefault('INFLUXDB_USER', 'root')
-        app.config.setdefault('INFLUXDB_PASSWORD', 'root')
-        app.config.setdefault('INFLUXDB_DATABASE', None)
-        app.config.setdefault('INFLUXDB_SSL', False)
-        app.config.setdefault('INFLUXDB_VERIFY_SSL', False)
-        app.config.setdefault('INFLUXDB_RETRIES', 3)
-        app.config.setdefault('INFLUXDB_TIMEOUT', None)
-        app.config.setdefault('INFLUXDB_USE_UDP', False)
-        app.config.setdefault('INFLUXDB_UDP_PORT', 4444)
-        app.config.setdefault('INFLUXDB_PROXIES', None)
-        app.config.setdefault('INFLUXDB_POOL_SIZE', 10)
+        if prefix.strip() != '':
+            self.prefix = prefix
+
+        defaults = {
+            'HOST': 'localhost',
+            'PORT': 8086,
+            'USER': 'root',
+            'PASSWORD': 'root',
+            'DATABASE': None,
+            'SSL': False,
+            'VERIFY_SSL': False,
+            'RETRIES': 3,
+            'TIMEOUT': None,
+            'USE_UDP': False,
+            'UDP_PORT': 4444,
+            'PROXIES': None,
+            'POOL_SIZE': 10
+        }
+
+        prefix_add = self.__connection_app_prefix
+        for param, value in defaults.items():
+            app.config.setdefault('{prefix}INFLUXDB_{param}'.format(prefix=prefix_add, param=param), value)
 
         if hasattr(app, 'teardown_appcontext'):
             app.teardown_appcontext(self.teardown)
         else:
             app.teardown_request(self.teardown)
 
-    def connect(self):
+    def __connect(self):
         """
         Connect to InfluxDB using configuration parameters
         :return: InfluxDBClient object
         """
-        return influxdb.InfluxDBClient(
-            host=current_app.config['INFLUXDB_HOST'],
-            port=current_app.config['INFLUXDB_PORT'],
-            username=current_app.config['INFLUXDB_USER'],
-            password=current_app.config['INFLUXDB_PASSWORD'],
-            database=current_app.config['INFLUXDB_DATABASE'],
-            ssl=current_app.config['INFLUXDB_SSL'],
-            verify_ssl=current_app.config['INFLUXDB_VERIFY_SSL'],
-            timeout=current_app.config['INFLUXDB_TIMEOUT'],
-            retries=current_app.config['INFLUXDB_RETRIES'],
-            use_udp=current_app.config['INFLUXDB_USE_UDP'],
-            udp_port=current_app.config['INFLUXDB_UDP_PORT'],
-            proxies=current_app.config['INFLUXDB_PROXIES'],
-            pool_size=current_app.config['INFLUXDB_POOL_SIZE']
-        )
+        config_map = {
+            'host': 'HOST',
+            'port': 'PORT',
+            'username': 'USER',
+            'password': 'PASSWORD',
+            'database': 'DATABASE',
+            'ssl': 'SSL',
+            'verify_ssl': 'VERIFY_SSL',
+            'timeout': 'TIMEOUT',
+            'retries': 'RETRIES',
+            'use_udp': 'USE_UDP',
+            'udp_port': 'UDP_PORT',
+            'proxies': 'PROXIES',
+            'pool_size': 'POOL_SIZE'
+        }
+
+        prefix_add = self.__connection_app_prefix
+
+        # Get parameters from application and map them to open connection
+        args = {item: current_app.config.get('{prefix}INFLUXDB_{param}'.format(prefix=prefix_add, param=param))
+                for item, param in config_map.items()}
+
+        return influxdb.InfluxDBClient(**args)
 
     def teardown(self, exception):
         """
@@ -70,8 +107,10 @@ class InfluxDB(object):
         :return:
         """
         ctx = stack.top
-        if hasattr(ctx, 'influxdb_db'):
-            ctx.influxdb_db = None
+        context_attr = self.__context_attr_name
+
+        if hasattr(ctx, context_attr):
+            setattr(ctx, context_attr, None)
 
     @property
     def connection(self):
@@ -81,6 +120,8 @@ class InfluxDB(object):
         """
         ctx = stack.top
         if ctx is not None:
-            if not hasattr(ctx, 'influxdb_db'):
-                ctx.influxdb_db = self.connect()
-            return ctx.influxdb_db
+            context_attr = self.__context_attr_name
+
+            if not hasattr(ctx, context_attr):
+                setattr(ctx, context_attr, self.__connect())
+            return getattr(ctx, context_attr)

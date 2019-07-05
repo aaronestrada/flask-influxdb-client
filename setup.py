@@ -2,7 +2,7 @@ from distutils.core import setup
 
 setup(
     name='flask-influxdb-client',
-    version='0.1',
+    version='0.2',
     description='Extension to add InfluxDB client support to Flask framework.',
     license='BSD',
     author='Aaron Estrada Poggio',
@@ -12,6 +12,6 @@ setup(
     python_requires='>=3',
     install_requires=[
         'Flask',
-        'influxdb>=5.0.0'
+        'influxdb>=5.2.2'
     ]
 )
